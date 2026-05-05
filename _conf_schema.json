@@ -1,0 +1,153 @@
+{
+  "chat_analysis_enabled": {
+    "description": "是否启用聊天记录分析",
+    "hint": "开启后，插件会定时收集聊天消息并提交给 AI 进行分析审核。",
+    "type": "bool",
+    "default": false
+  },
+  "chat_analysis_interval_minutes": {
+    "description": "分析间隔（分钟）",
+    "hint": "每隔多少分钟执行一次 AI 分析。",
+    "type": "int",
+    "default": 30
+  },
+  "chat_analysis_max_messages": {
+    "description": "每次分析的最大消息数",
+    "hint": "每次分析时从缓存中最多取多少条消息。设为 0 表示不限制，提交全部缓存消息。",
+    "type": "int",
+    "default": 0
+  },
+  "chat_analysis_skip_silent": {
+    "description": "无异常时跳过推送",
+    "hint": "开启后，若 AI 分析判断本轮聊天记录一切正常（无争吵、违规、负面情绪等），则不发送报告，节省通知噪音。",
+    "type": "bool",
+    "default": true
+  },
+  "chat_analysis_target_session": {
+    "description": "全局报告发送目标会话",
+    "hint": "分析报告将发送到此会话。格式如 aiocqhttp:GroupMessage:群号。留空则不发送，仅写日志。各群可单独覆盖。",
+    "type": "string",
+    "default": ""
+  },
+  "chat_analysis_group_configs": {
+    "description": "多群独立分析策略",
+    "hint": "为不同的群配置独立的分析策略和关键词触发。可在 WebUI 上快速添加和编辑群配置。留空则使用全局配置。",
+    "type": "template_list",
+    "templates": {
+      "default_group_config": {
+        "name": "标准监控",
+        "hint": "综合审核 + 风险检测，适用于大多数群",
+        "items": {
+          "group_id": {
+            "description": "群号",
+            "type": "string",
+            "hint": "要分析的目标群号（纯数字）"
+          },
+          "presets": {
+            "description": "分析策略",
+            "type": "list",
+            "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
+            "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
+            "render_type": "checkbox",
+            "default": ["default", "risk"],
+            "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
+          },
+          "custom_prompt": {
+            "description": "自定义提示词",
+            "type": "text",
+            "default": "",
+            "hint": "当 presets 包含 custom 时生效，定义自定义的分析提示词"
+          },
+          "trigger_keywords": {
+            "description": "触发关键词",
+            "type": "string",
+            "default": "",
+            "hint": "消息包含任一关键词时立即触发即时分析，多个用逗号分隔。留空则仅定时分析"
+          },
+          "target_session": {
+            "description": "报告发送目标",
+            "type": "string",
+            "default": "",
+            "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
+          }
+        }
+      },
+      "strict_group_config": {
+        "name": "严格监控",
+        "hint": "风险检测为主，发现敏感词即时触发审核",
+        "items": {
+          "group_id": {
+            "description": "群号",
+            "type": "string",
+            "hint": "要分析的目标群号（纯数字）"
+          },
+          "presets": {
+            "description": "分析策略",
+            "type": "list",
+            "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
+            "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
+            "render_type": "checkbox",
+            "default": ["risk"],
+            "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
+          },
+          "custom_prompt": {
+            "description": "自定义提示词",
+            "type": "text",
+            "default": "",
+            "hint": "当 presets 包含 custom 时生效"
+          },
+          "trigger_keywords": {
+            "description": "触发关键词",
+            "type": "string",
+            "default": "广告,推广,吵架,骂人,骗子",
+            "hint": "消息包含任一关键词时立即触发即时分析"
+          },
+          "target_session": {
+            "description": "报告发送目标",
+            "type": "string",
+            "default": "",
+            "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
+          }
+        }
+      },
+      "light_group_config": {
+        "name": "轻量观察",
+        "hint": "仅关注活跃度和舆情，不做安全审查",
+        "items": {
+          "group_id": {
+            "description": "群号",
+            "type": "string",
+            "hint": "要分析的目标群号（纯数字）"
+          },
+          "presets": {
+            "description": "分析策略",
+            "type": "list",
+            "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
+            "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
+            "render_type": "checkbox",
+            "default": ["activity", "sentiment"],
+            "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
+          },
+          "custom_prompt": {
+            "description": "自定义提示词",
+            "type": "text",
+            "default": "",
+            "hint": "当 presets 包含 custom 时生效"
+          },
+          "trigger_keywords": {
+            "description": "触发关键词",
+            "type": "string",
+            "default": "",
+            "hint": "消息包含任一关键词时立即触发即时分析，多个用逗号分隔"
+          },
+          "target_session": {
+            "description": "报告发送目标",
+            "type": "string",
+            "default": "",
+            "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
+          }
+        }
+      }
+    }
+  }
+}
