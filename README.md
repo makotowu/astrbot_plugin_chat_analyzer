@@ -36,22 +36,24 @@ git clone https://github.com/makotowu/astrbot_plugin_chat_analyzer.git
 | `chat_analysis_skip_silent` | bool | true | 无异常时跳过报告推送 |
 | `chat_analysis_target_session` | string | 空 | 全局报告发送目标会话，格式如 `aiocqhttp:GroupMessage:群号`。留空则仅写入日志 |
 
-### 多群独立策略配置 (`chat_analysis_group_configs`)
+### 策略组配置 (`chat_analysis_group_configs`)
 
-在 WebUI 中可为不同群配置独立的分析策略，支持模板快速添加：
+在 WebUI 中可为不同群配置独立的分析策略组，每个策略组支持关联多个群，共享相同的分析策略。支持模板快速添加：
 
 | 配置项 | 类型 | 说明 |
 |--------|------|------|
-| `group_id` | string | 目标群号 |
+| `group_ids` | string | 应用此策略的群号列表，多个用逗号分隔（如 `123456,789012`） |
 | `presets` | 多选 | 启用的分析策略，支持：综合审核(default)、主题分析(topic)、舆情监控(sentiment)、活跃度分析(activity)、风险检测(risk)、自定义(custom) |
 | `custom_prompt` | text | 自定义提示词，当 presets 包含 custom 时生效 |
+| `group_rules` | text | 群规文本，将作为参考依据提交给 AI，使分析结果更贴合实际情况。支持换行，留空则不注入群规 |
 | `trigger_keywords` | string | 触发关键词，多个用逗号分隔。消息包含任一关键词时立即触发即时分析 |
-| `target_session` | string | 该群的报告发送目标，留空则使用全局配置 |
+| `target_session` | string | 该策略组的报告发送目标，留空则使用全局配置 |
 
 #### 内置模板
 
 - **标准监控**：综合审核 + 风险检测，适用于大多数群。
 - **严格监控**：风险检测为主，适用于需要严格内容审核的群。
+- **轻量观察**：仅关注活跃度和舆情，不做安全审查。
 
 ## 命令
 
@@ -107,9 +109,9 @@ astrbot_plugin_chat_analyzer/
 ├── metadata.yaml        # 插件元数据
 ├── _conf_schema.json    # 配置 Schema
 ├── .gitignore
-└── data/                # 运行时数据（缓冲区持久化）
-    └── buffers.json
 ```
+
+> 运行时缓冲区数据通过 `StarTools.get_data_dir()` 保存到 AstrBot 标准数据目录，与插件源码分离。
 
 ## 许可证
 

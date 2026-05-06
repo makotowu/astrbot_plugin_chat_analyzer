@@ -9,6 +9,7 @@ from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.all import *
+from astrbot.api.star import StarTools
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import (
     EventMessageType,
@@ -19,8 +20,6 @@ from astrbot.api.event.filter import (
     PermissionType,
 )
 from astrbot.api.message_components import Plain
-
-PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 REPORT_PREFIX = "\U0001f4ca 聊天记录分析报告"
 
@@ -170,13 +169,23 @@ def _resolve_group_prompts(gc: "GroupConfig") -> List[Tuple[str, str]]:
     return prompts if prompts else [("default", _BUILTIN_PROMPTS["default"])]
 
 
-def _build_combined_prompt(prompts: List[Tuple[str, str]], skip_silent: bool = True) -> str:
+def _build_combined_prompt(prompts: List[Tuple[str, str]], skip_silent: bool = True, group_rules: str = "") -> str:
     lines: List[str] = []
     lines.append("你正在审查一批群聊消息，请严格以“群管理/内容审核”视角输出。")
     lines.append("输入中的每条消息都带有 [#N] 编号，编号是唯一定位依据。")
     lines.append("消息内容可能是从图文消息中提取出的纯文本；未提供的图片信息一律视为未知，不得脑补。")
     lines.append("请只根据已给出的聊天内容下结论，避免过度解读。")
     lines.append("")
+    if group_rules:
+        lines.append("【群规参考】")
+        lines.append("以下为该群的群规，请将其作为判断消息是否违规的重要依据：")
+        for rule_line in group_rules.strip().splitlines():
+            stripped = rule_line.strip()
+            if stripped:
+                lines.append(f"  {stripped}")
+        lines.append("在分析时，如果某条消息违反了以上群规中的任一条款，"
+                     "应将其视为需要关注或复核的内容。")
+        lines.append("")
     lines.append("安全输出规则：")
     lines.append("1. 你的输出必须合规、克制、中性，服务于管理员审核，不得生成煽动、辱骂、色情、诈骗、暴力或违法指导内容。")
     lines.append("2. 不要复述原始违规文案，不要逐字引用脏话、露骨色情描述、诈骗话术、政治极端口号、暴力细节。")
@@ -247,8 +256,17 @@ class GroupConfig:
     group_id: str
     presets: List[str] = field(default_factory=lambda: ["default"])
     custom_prompt: str = ""
+    group_rules: str = ""
     trigger_keywords: List[str] = field(default_factory=list)
     target_session: str = ""
+
+
+def _split_ids(raw_ids: str) -> List[str]:
+    return [
+        gid.strip()
+        for gid in raw_ids.replace("，", ",").split(",")
+        if gid.strip()
+    ]
 
 
 def _parse_group_configs(config: dict) -> Dict[str, GroupConfig]:
@@ -259,8 +277,11 @@ def _parse_group_configs(config: dict) -> Dict[str, GroupConfig]:
     for item in raw:
         if not isinstance(item, dict):
             continue
-        gid = str(item.get("group_id", "")).strip()
-        if not gid:
+        ids_raw = str(item.get("group_ids", "")).strip()
+        if not ids_raw:
+            ids_raw = str(item.get("group_id", "")).strip()
+        group_ids = _split_ids(ids_raw)
+        if not group_ids:
             continue
         preset_val = item.get("presets", ["default"])
         if isinstance(preset_val, list):
@@ -282,13 +303,15 @@ def _parse_group_configs(config: dict) -> Dict[str, GroupConfig]:
             for kw in keyword_raw.replace("，", ",").split(",")
             if kw.strip()
         ]
-        result[gid] = GroupConfig(
-            group_id=gid,
+        shared_config = dict(
             presets=valid_presets,
             custom_prompt=str(item.get("custom_prompt", "")).strip(),
+            group_rules=str(item.get("group_rules", "")).strip(),
             trigger_keywords=keywords,
             target_session=str(item.get("target_session", "")).strip(),
         )
+        for gid in group_ids:
+            result[gid] = GroupConfig(group_id=gid, **shared_config)
     return result
 
 
@@ -319,8 +342,8 @@ class Main(Star):
         if not self._active:
             if not self._group_configs:
                 logger.warning(
-                    "未配置任何群策略，插件不会运行。"
-                    "请在 WebUI 的「多群独立分析策略」中添加群配置。"
+                    "未配置任何策略组，插件不会运行。"
+                    "请在 WebUI 的「多群独立分析策略组」中添加策略组并关联群号。"
                 )
         else:
             logger.info(
@@ -329,7 +352,10 @@ class Main(Star):
                 f"监控群数 {len(self._group_configs)}"
             )
 
-        self._data_path = os.path.join(PLUGIN_DIR, "data", "buffers.json")
+        self._data_path = os.path.join(
+            StarTools.get_data_dir(plugin_name="astrbot_plugin_chat_analyzer"),
+            "buffers.json",
+        )
 
         self._buffers: Dict[str, Deque[_ChatRecord]] = {}
         self._lock = asyncio.Lock()
@@ -473,7 +499,7 @@ class Main(Star):
     @command("analyze", alias={"审核", "analyze_now", "分析"})
     async def cmd_analyze(self, event: AstrMessageEvent, gid: str = ""):
         if not self._active:
-            yield event.plain_result("插件未启用或无群配置，请先在 WebUI 中配置。")
+            yield event.plain_result("插件未启用或未配置策略组，请先在 WebUI 中配置。")
             return
         group_id = (gid or "").strip()
         if not group_id:
@@ -483,7 +509,7 @@ class Main(Star):
             return
         if group_id not in self._group_configs:
             yield event.plain_result(
-                f"群 {group_id} 未配置分析策略，请在 WebUI 的「多群独立分析策略」中添加。"
+                f"群 {group_id} 未配置分析策略，请在 WebUI 的「多群独立分析策略组」中添加。"
             )
             return
         buf_key = self._buffer_key(group_id)
@@ -552,7 +578,7 @@ class Main(Star):
             return
 
         prompts = _resolve_group_prompts(gc)
-        system_prompt = _build_combined_prompt(prompts, self.skip_silent and not force_report)
+        system_prompt = _build_combined_prompt(prompts, self.skip_silent and not force_report, gc.group_rules)
         chat_text = "\n".join(r.format(i + 1) for i, r in enumerate(records))
 
         logger.info(

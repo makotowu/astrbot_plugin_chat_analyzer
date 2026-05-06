@@ -30,18 +30,18 @@
     "default": ""
   },
   "chat_analysis_group_configs": {
-    "description": "多群独立分析策略",
-    "hint": "为不同的群配置独立的分析策略和关键词触发。可在 WebUI 上快速添加和编辑群配置。留空则使用全局配置。",
+    "description": "多群独立分析策略组",
+    "hint": "每个策略组可配置一套分析策略并应用到多个群。可在 WebUI 上快速添加和编辑。",
     "type": "template_list",
     "templates": {
       "default_group_config": {
         "name": "标准监控",
         "hint": "综合审核 + 风险检测，适用于大多数群",
         "items": {
-          "group_id": {
-            "description": "群号",
+          "group_ids": {
+            "description": "群号列表",
             "type": "string",
-            "hint": "要分析的目标群号（纯数字）"
+            "hint": "应用此策略的群号，多个用逗号分隔（如 123456,789012）"
           },
           "presets": {
             "description": "分析策略",
@@ -57,6 +57,12 @@
             "type": "text",
             "default": "",
             "hint": "当 presets 包含 custom 时生效，定义自定义的分析提示词"
+          },
+          "group_rules": {
+            "description": "群规",
+            "type": "text",
+            "default": "",
+            "hint": "本策略组的群规文本，将提交给 LLM 作为分析参考依据。支持换行，留空则不注入群规"
           },
           "trigger_keywords": {
             "description": "触发关键词",
@@ -76,10 +82,10 @@
         "name": "严格监控",
         "hint": "风险检测为主，发现敏感词即时触发审核",
         "items": {
-          "group_id": {
-            "description": "群号",
+          "group_ids": {
+            "description": "群号列表",
             "type": "string",
-            "hint": "要分析的目标群号（纯数字）"
+            "hint": "应用此策略的群号，多个用逗号分隔（如 123456,789012）"
           },
           "presets": {
             "description": "分析策略",
@@ -95,6 +101,12 @@
             "type": "text",
             "default": "",
             "hint": "当 presets 包含 custom 时生效"
+          },
+          "group_rules": {
+            "description": "群规",
+            "type": "text",
+            "default": "",
+            "hint": "本策略组的群规文本，将提交给 LLM 作为分析参考依据。支持换行，留空则不注入群规"
           },
           "trigger_keywords": {
             "description": "触发关键词",
@@ -114,10 +126,10 @@
         "name": "轻量观察",
         "hint": "仅关注活跃度和舆情，不做安全审查",
         "items": {
-          "group_id": {
-            "description": "群号",
+          "group_ids": {
+            "description": "群号列表",
             "type": "string",
-            "hint": "要分析的目标群号（纯数字）"
+            "hint": "应用此策略的群号，多个用逗号分隔（如 123456,789012）"
           },
           "presets": {
             "description": "分析策略",
@@ -133,6 +145,12 @@
             "type": "text",
             "default": "",
             "hint": "当 presets 包含 custom 时生效"
+          },
+          "group_rules": {
+            "description": "群规",
+            "type": "text",
+            "default": "",
+            "hint": "本策略组的群规文本，将提交给 LLM 作为分析参考依据。支持换行，留空则不注入群规"
           },
           "trigger_keywords": {
             "description": "触发关键词",
