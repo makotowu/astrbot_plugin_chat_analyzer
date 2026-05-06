@@ -29,14 +29,20 @@
     "type": "string",
     "default": ""
   },
+  "chat_analysis_admin_ids": {
+    "description": "插件管理员 QQ 号",
+    "hint": "可使用 /审核、/执行确认、/执行拒绝 命令的管理员 QQ 号，多个用逗号分隔（如 123456,789012）。留空则仅 AstrBot 内置管理员可用。",
+    "type": "string",
+    "default": ""
+  },
   "chat_analysis_group_configs": {
     "description": "多群独立分析策略组",
     "hint": "每个策略组可配置一套分析策略并应用到多个群。可在 WebUI 上快速添加和编辑。",
     "type": "template_list",
     "templates": {
       "default_group_config": {
-        "name": "标准监控",
-        "hint": "综合审核 + 风险检测，适用于大多数群",
+        "name": "策略组",
+        "hint": "配置分析策略、处置模式、群规等，应用到关联的群",
         "items": {
           "group_ids": {
             "description": "群号列表",
@@ -48,7 +54,7 @@
             "type": "list",
             "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
             "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
-            "render_type": "checkbox",
+            "render_type": "radio",
             "default": ["default", "risk"],
             "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
           },
@@ -57,6 +63,14 @@
             "type": "text",
             "default": "",
             "hint": "当 presets 包含 custom 时生效，定义自定义的分析提示词"
+          },
+          "action_mode": {
+            "description": "处置模式",
+            "type": "string",
+            "options": ["suggest", "confirm", "auto"],
+            "labels": ["仅建议（不执行）", "确认后执行", "自动执行"],
+            "default": "suggest",
+            "hint": "suggest=仅输出建议不执行操作；confirm=AI 给出处置建议后需管理员确认再执行；auto=分析后直接执行禁言/移除/拉黑并撤回违规消息"
           },
           "group_rules": {
             "description": "群规",
@@ -75,94 +89,12 @@
             "type": "string",
             "default": "",
             "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
-          }
-        }
-      },
-      "strict_group_config": {
-        "name": "严格监控",
-        "hint": "风险检测为主，发现敏感词即时触发审核",
-        "items": {
-          "group_ids": {
-            "description": "群号列表",
-            "type": "string",
-            "hint": "应用此策略的群号，多个用逗号分隔（如 123456,789012）"
           },
-          "presets": {
-            "description": "分析策略",
-            "type": "list",
-            "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
-            "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
-            "render_type": "checkbox",
-            "default": ["risk"],
-            "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
-          },
-          "custom_prompt": {
-            "description": "自定义提示词",
-            "type": "text",
-            "default": "",
-            "hint": "当 presets 包含 custom 时生效"
-          },
-          "group_rules": {
-            "description": "群规",
-            "type": "text",
-            "default": "",
-            "hint": "本策略组的群规文本，将提交给 LLM 作为分析参考依据。支持换行，留空则不注入群规"
-          },
-          "trigger_keywords": {
-            "description": "触发关键词",
-            "type": "string",
-            "default": "广告,推广,吵架,骂人,骗子",
-            "hint": "消息包含任一关键词时立即触发即时分析"
-          },
-          "target_session": {
-            "description": "报告发送目标",
+          "admin_ids": {
+            "description": "策略组管理员 QQ 号",
             "type": "string",
             "default": "",
-            "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
-          }
-        }
-      },
-      "light_group_config": {
-        "name": "轻量观察",
-        "hint": "仅关注活跃度和舆情，不做安全审查",
-        "items": {
-          "group_ids": {
-            "description": "群号列表",
-            "type": "string",
-            "hint": "应用此策略的群号，多个用逗号分隔（如 123456,789012）"
-          },
-          "presets": {
-            "description": "分析策略",
-            "type": "list",
-            "options": ["default", "topic", "sentiment", "activity", "risk", "custom"],
-            "labels": ["综合审核", "主题分析", "舆情监控", "活跃度分析", "风险检测", "自定义"],
-            "render_type": "checkbox",
-            "default": ["activity", "sentiment"],
-            "hint": "勾选需要启用的分析策略。custom 需配合下方自定义提示词使用。"
-          },
-          "custom_prompt": {
-            "description": "自定义提示词",
-            "type": "text",
-            "default": "",
-            "hint": "当 presets 包含 custom 时生效"
-          },
-          "group_rules": {
-            "description": "群规",
-            "type": "text",
-            "default": "",
-            "hint": "本策略组的群规文本，将提交给 LLM 作为分析参考依据。支持换行，留空则不注入群规"
-          },
-          "trigger_keywords": {
-            "description": "触发关键词",
-            "type": "string",
-            "default": "",
-            "hint": "消息包含任一关键词时立即触发即时分析，多个用逗号分隔"
-          },
-          "target_session": {
-            "description": "报告发送目标",
-            "type": "string",
-            "default": "",
-            "hint": "分析报告发送的会话标识。留空则使用全局 target_session"
+            "hint": "可使用此策略组审核/处置命令的管理员 QQ 号，多个用逗号分隔。留空则使用全局管理员或 AstrBot 内置管理员"
           }
         }
       }

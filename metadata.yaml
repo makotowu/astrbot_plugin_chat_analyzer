@@ -1,7 +1,9 @@
 name: astrbot_plugin_chat_analyzer
 desc: 定时收集聊天记录并提交给AI进行分析审核。支持配置分析间隔、提示词、目标会话等。
-help: 配置后可自动收集群聊/私聊消息，定时调用AI分析讨论主题、氛围，发现需要关注的问题。
+help: 配置后可自动收集群聊消息，定时调用AI分析讨论主题、氛围，发现需要关注的问题。
 version: v1.0.0
 author: "makotowu"
 repo: https://github.com/makotowu/astrbot_plugin_chat_analyzer
 astrbot_version: ">=4.5.2"
+support_platforms:
+  - aiocqhttp
