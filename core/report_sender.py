@@ -96,15 +96,22 @@ class ReportSender:
                         },
                     })
                     uid = record.sender_id or record.sender
+                    content_parts: list = []
+                    if record.content:
+                        content_parts.append(
+                            {"type": "text", "data": {"text": record.content}}
+                        )
+                    for img_url in record.image_urls:
+                        content_parts.append(
+                            {"type": "image", "data": {"url": img_url}}
+                        )
                     nodes.append({
                         "type": "node",
                         "data": {
                             "user_id": uid,
                             "nickname": record.sender,
                             "id": "",
-                            "content": [
-                                {"type": "text", "data": {"text": record.content}}
-                            ],
+                            "content": content_parts,
                         },
                     })
 

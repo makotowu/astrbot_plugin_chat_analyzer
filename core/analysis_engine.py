@@ -17,7 +17,7 @@ from .analysis_parser import (
     sanitize_analysis_output,
 )
 from .buffer_manager import BufferManager
-from .constant import ACTION_LABELS, SKIP_SILENT_MARKER
+from .constant import ACTION_LABELS
 from .models import ChatRecord, GroupConfig
 from .prompt_builder import build_combined_prompt, resolve_group_prompts
 from .report_sender import ReportSender
@@ -71,12 +71,23 @@ class AnalysisEngine:
             return
 
         result = sanitize_analysis_output(raw)
-        if self._skip_silent and not force_report and result.strip() == SKIP_SILENT_MARKER:
-            logger.info(f"群 {group_id} 本轮分析无异常，跳过报告推送。")
-            return
 
         overall_conclusion = extract_overall_conclusion(result)
         position_items = extract_position_items(result, len(records))
+        action_suggestions = extract_action_suggestions(result, records, len(records))
+
+        if (
+            self._skip_silent
+            and not force_report
+            and overall_conclusion == "正常"
+            and not position_items
+            and not action_suggestions
+        ):
+            logger.info(
+                f"群 {group_id} 本轮分析结论正常，且无定位消息和处置建议，跳过报告推送。"
+            )
+            return
+
         flagged_pairs: Optional[List[Tuple[str, str, ChatRecord]]] = None
 
         if overall_conclusion != "正常":
@@ -108,7 +119,6 @@ class AnalysisEngine:
 
         action_results_text = ""
         if gc.action_mode in ("confirm", "auto"):
-            action_suggestions = extract_action_suggestions(result, records, len(records))
             if action_suggestions:
                 clean_actions, admin_warnings = self._admin.filter_actions(
                     group_id, action_suggestions, target
@@ -182,4 +192,9 @@ class AnalysisEngine:
             f"群 {group_id} confirm 模式待确认 {confirm_id}，"
             f"{len(actions)} 项处置。"
         )
-        return "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n" + confirm_msg
+        return (
+            "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+            "\u23f3 \u5f85\u786e\u8ba4\u5904\u7f6e\u5df2\u751f\u6210:\n"
+            f"  \u5171 {len(actions)} \u9879\uff0c\u7f16\u53f7 {confirm_id}\n"
+            f"  \u4f7f\u7528 /执行确认 {confirm_id} \u6216 /执行拒绝 {confirm_id} \u5904\u7406"
+        )

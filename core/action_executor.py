@@ -28,7 +28,7 @@ class ActionExecutor:
         for action, idx, reason, target_id, sender_name, mute_duration, message_id, ai_notify in actions:
             label = ACTION_LABELS.get(action, action)
             try:
-                if message_id:
+                if action != "清昵" and message_id:
                     try:
                         await client.delete_msg(message_id=int(message_id))
                         logger.info(f"群 {group_id} 已撤回消息 {message_id}")
@@ -108,10 +108,11 @@ class ActionExecutor:
 
                 if "notify" in locals():
                     try:
+                        at_text = f"[CQ:at,qq={target_id}]"
                         await client.api.call_action(
                             "send_group_msg",
                             group_id=int(group_id),
-                            message=f"\U0001f6ab @{sender_name} {notify}" if not ai_notify else f"\U0001f6ab {notify}",
+                            message=f"\U0001f6ab {at_text} {notify}",
                         )
                     except Exception as ne:
                         logger.warning(f"群 {group_id} 发送处置通知失败: {ne}")

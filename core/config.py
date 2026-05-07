@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from astrbot.api import logger
 
@@ -71,3 +71,34 @@ def parse_group_configs(config: dict) -> Dict[str, GroupConfig]:
                 continue
             result[gid] = GroupConfig(group_id=gid, **shared_config)
     return result
+
+
+def persist_strategy_admins(
+    config: Any, group_id: str, admin_ids: List[str]
+) -> None:
+    group_configs = config.get("chat_analysis_group_configs")
+    if not isinstance(group_configs, list):
+        return
+    target_item = None
+    for item in group_configs:
+        if not isinstance(item, dict):
+            continue
+        ids_raw = str(item.get("group_ids", "")).strip()
+        gids = [
+            g.strip()
+            for g in ids_raw.replace("\uff0c", ",").split(",")
+            if g.strip()
+        ]
+        if group_id in gids:
+            target_item = item
+            break
+    if target_item is None:
+        return
+    target_item["admin_ids"] = ",".join(admin_ids)
+    try:
+        config.save_config()
+        logger.info(
+            f"策略组管理员已持久化: 群 {group_id} -> {target_item['admin_ids']}"
+        )
+    except Exception as e:
+        logger.error(f"保存策略组管理员配置失败: {e}")

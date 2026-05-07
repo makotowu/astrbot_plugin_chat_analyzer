@@ -179,8 +179,9 @@ astrbot_plugin_chat_analyzer/
 └── core/                 # 核心模块
     ├── constant.py       # 常量：提示词、正则、标签、冷却时间
     ├── models.py         # 数据模型：GroupConfig、ChatRecord
-    ├── config.py         # 配置解析：parse_group_configs
+    ├── config.py         # 配置解析与持久化
     ├── prompt_builder.py # 提示词构建：策略组合、安全规则注入
+    ├── image_processor.py # 图片处理：提取图片 URL 并转述为文字
     ├── ai_client.py      # AI 调用客户端：封装 LLM 请求
     ├── analysis_engine.py # 分析引擎：编排分析全流程
     ├── analysis_parser.py # 结果解析：结论提取、处置建议、安全清洗

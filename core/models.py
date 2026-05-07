@@ -25,6 +25,8 @@ class ChatRecord:
         group_id: str = "",
         sender_id: str = "",
         message_id: str = "",
+        image_urls: List[str] | None = None,
+        image_captions: List[str] | None = None,
     ):
         self.session_id = session_id
         self.sender = sender
@@ -33,12 +35,17 @@ class ChatRecord:
         self.timestamp = timestamp
         self.group_id = group_id
         self.message_id = message_id
+        self.image_urls: List[str] = image_urls or []
+        self.image_captions: List[str] = image_captions or []
 
     def format(self, index: int = 0) -> str:
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
         location = f"[群:{self.group_id}]" if self.group_id else ""
         prefix = f"[#{index}] " if index > 0 else ""
-        return f"{prefix}[{time_str}]{location} {self.sender}: {self.content}"
+        base = f"{prefix}[{time_str}]{location} {self.sender}: {self.content}"
+        for caption in self.image_captions:
+            base += f"\n{prefix} > [图片: {caption}]"
+        return base
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -49,6 +56,8 @@ class ChatRecord:
             "timestamp": self.timestamp,
             "group_id": self.group_id,
             "message_id": self.message_id,
+            "image_urls": self.image_urls,
+            "image_captions": self.image_captions,
         }
 
     @classmethod
@@ -61,4 +70,6 @@ class ChatRecord:
             timestamp=d.get("timestamp", 0.0),
             group_id=d.get("group_id", ""),
             message_id=d.get("message_id", ""),
+            image_urls=d.get("image_urls") or [],
+            image_captions=d.get("image_captions") or [],
         )

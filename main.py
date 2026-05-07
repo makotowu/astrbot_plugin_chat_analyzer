@@ -20,12 +20,13 @@ from .core.admin_manager import AdminManager
 from .core.ai_client import AIClient
 from .core.analysis_engine import AnalysisEngine
 from .core.buffer_manager import BufferManager
-from .core.config import parse_group_configs
+from .core.config import parse_group_configs, persist_strategy_admins
 from .core.constant import (
     CLEAN_MESSAGE_RE,
     REPORT_PREFIX,
     TRIGGER_COOLDOWN_SECONDS,
 )
+from .core.image_processor import ImageProcessor
 from .core.models import ChatRecord, GroupConfig
 from .core.report_sender import ReportSender
 
@@ -87,6 +88,7 @@ class Main(Star):
 
         self._bot_id: str = ""
         self._report = ReportSender(self.context, self._bot_id)
+        self._image = ImageProcessor(self.context)
         self._executor = ActionExecutor(self.context)
         self._ai_client = AIClient(self.context, self.target_session)
         self._admin = AdminManager(self.context, self._group_configs, self._admin_ids)
@@ -116,6 +118,30 @@ class Main(Star):
             self._report = ReportSender(self.context, self._bot_id)
         return sid
 
+    @staticmethod
+    def _is_same_group(target_session: str, group_id: str) -> bool:
+        if not target_session or not group_id:
+            return False
+        try:
+            parts = target_session.split(":")
+            return len(parts) >= 3 and parts[-1] == group_id
+        except Exception:
+            return False
+
+    def _is_same_target_session(
+        self,
+        event: AstrMessageEvent,
+        target_session: str,
+        group_id: str,
+    ) -> bool:
+        if not target_session:
+            return False
+        current_session = event.unified_msg_origin or ""
+        if current_session and current_session == target_session:
+            return True
+        current_group_id = event.get_group_id() or ""
+        return current_group_id == group_id and self._is_same_group(target_session, group_id)
+
     @event_message_type(EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         if not self._active:
@@ -124,11 +150,22 @@ class Main(Star):
         if group_id not in self._group_configs:
             return
         sender = event.get_sender_name() or "unknown"
-        text = CLEAN_MESSAGE_RE.sub("", (event.message_str or "").strip()).strip()
-        if not text:
+
+        text_parts: List[str] = []
+        image_info = await self._image.extract(event)
+
+        for seg in event.get_messages():
+            if isinstance(seg, Plain):
+                t = CLEAN_MESSAGE_RE.sub("", (str(seg.text) or "").strip()).strip()
+                if t:
+                    text_parts.append(t)
+
+        text = " ".join(text_parts).strip()
+        if not text and not image_info["captions"]:
             return
         if text.startswith(REPORT_PREFIX):
             return
+
         record = ChatRecord(
             session_id=event.unified_msg_origin,
             sender=sender,
@@ -137,9 +174,12 @@ class Main(Star):
             timestamp=time.time(),
             group_id=group_id,
             message_id=getattr(event.message_obj, "message_id", ""),
+            image_urls=image_info["urls"],
+            image_captions=image_info["captions"],
         )
         await self._buf.append_record(group_id, record)
-        await self._check_trigger(group_id, text)
+        trigger_text = text or " ".join(image_info["captions"])
+        await self._check_trigger(group_id, trigger_text)
 
     @after_message_sent()
     async def on_bot_reply(self, event: AstrMessageEvent):
@@ -260,7 +300,7 @@ class Main(Star):
                 added.append(qq)
 
         if added:
-            self._persist_strategy_admins(group_id, gc.admin_ids)
+            persist_strategy_admins(self.cfg, group_id, gc.admin_ids)
             yield event.plain_result(
                 f"\u2705 \u5df2\u5c06 {', '.join(added)} \u6dfb\u52a0\u4e3a\u7fa4 {group_id} \u7684\u7b56\u7565\u7ec4\u7ba1\u7406\u5458\u3002"
                 f"\n\u5f53\u524d\u7b56\u7565\u7ec4\u7ba1\u7406\u5458: {', '.join(gc.admin_ids) if gc.admin_ids else '\u65e0'}"
@@ -289,7 +329,7 @@ class Main(Star):
         summary = f"\U0001f4cb \u5904\u7f6e\u7ed3\u679c (编号 {cid}):\n" + "\n".join(results)
         yield event.plain_result(summary)
         target = pending["target"]
-        if target:
+        if target and not self._is_same_target_session(event, target, pending["group_id"]):
             try:
                 await self.context.send_message(target, MessageChain(chain=[Plain(summary)]))
             except Exception as e:
@@ -309,36 +349,6 @@ class Main(Star):
             yield event.plain_result("权限不足，仅管理员可用。")
             return
         yield event.plain_result(f"\u274c \u5df2\u62d2\u7edd\u7f16\u53f7 {cid} \u7684\u5904\u7f6e\u5efa\u8bae\u3002")
-
-    # ------------------------------------------------------------------
-    # 配置持久化
-    # ------------------------------------------------------------------
-
-    def _persist_strategy_admins(self, group_id: str, admin_ids: List[str]) -> None:
-        group_configs = self.cfg.get("chat_analysis_group_configs")
-        if not isinstance(group_configs, list):
-            return
-        target_item = None
-        for item in group_configs:
-            if not isinstance(item, dict):
-                continue
-            ids_raw = str(item.get("group_ids", "")).strip()
-            gids = [
-                g.strip()
-                for g in ids_raw.replace("\uff0c", ",").split(",")
-                if g.strip()
-            ]
-            if group_id in gids:
-                target_item = item
-                break
-        if target_item is None:
-            return
-        target_item["admin_ids"] = ",".join(admin_ids)
-        try:
-            self.cfg.save_config()
-            logger.info(f"策略组管理员已持久化: 群 {group_id} -> {target_item['admin_ids']}")
-        except Exception as e:
-            logger.error(f"保存策略组管理员配置失败: {e}")
 
     # ------------------------------------------------------------------
     # 生命周期

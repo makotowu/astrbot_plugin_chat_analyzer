@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from .constant import BUILTIN_PROMPTS, PRESET_LABELS, SKIP_SILENT_MARKER
+from .constant import BUILTIN_PROMPTS, PRESET_LABELS
 from .models import GroupConfig
 
 
@@ -61,8 +61,9 @@ def build_combined_prompt(
         lines.append("")
     if skip_silent:
         lines.append(
-            f"静默规则：如果本轮聊天整体正常，没有任何值得管理员关注的问题，"
-            f"也没有需要点名定位的消息，请仅回复「{SKIP_SILENT_MARKER}」，不要输出任何其他内容。"
+            "静默规则：如果本轮聊天整体正常，没有任何值得管理员关注的问题，"
+            "也没有需要点名定位的消息，请在【总体结论】输出“正常”，"
+            "【定位清单】和【处置建议】均输出“无”。"
         )
     lines.append("输出要求：")
     lines.append("1. 必须使用中文。")
