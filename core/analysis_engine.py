@@ -241,25 +241,13 @@ class AnalysisEngine:
 
         out: List[str] = []
 
+        SKIP_SECTIONS = {"【处置建议】", "【管理员提醒】"}
+
         for sec_title, sec_lines in sections.items():
+            if sec_title in SKIP_SECTIONS:
+                continue
             out.append(sec_title)
             content = [l.strip() for l in sec_lines if l.strip()]
-            if not content:
-                continue
-
-            if sec_title in ("【摘要】", "【风险与依据】", "【处理建议】"):
-                trimmed = []
-                for i, c in enumerate(content):
-                    if len(c) > 50:
-                        c = c[:47] + "..."
-                    if i >= 2 and sec_title in ("【摘要】", "【风险与依据】"):
-                        break
-                    trimmed.append(c)
-                out.extend(trimmed)
-            elif sec_title in ("【总体结论】", "【定位清单】",
-                               "【处置建议】", "【管理员提醒】"):
-                out.extend(content)
-            else:
-                out.extend(content)
+            out.extend(content)
 
         return "\n".join(out) + "\n"
