@@ -79,7 +79,7 @@ git clone https://github.com/makotowu/astrbot_plugin_chat_analyzer.git
 | 命令 | 别名 | 权限 | 说明 |
 |------|------|------|------|
 | `/analyze` | `/审核`、`/分析`、`/analyze_now` | 管理员¹ | 手动触发指定群的即时分析 |
-| `/策略组管理员` | `/admin`、`/setadmin` | 管理员¹ | 在群内 @ 成员，将其添加为当前策略组管理员 |
+| `/策略组管理员` | `/admin`、`/setadmin` | 管理员¹ | 在群内 @ 成员添加为策略组管理员；或使用 `/策略组管理员 --sync` 一键同步群主+管理员列表 |
 | `/执行确认` | `/execute_confirm`、`/执行` | 管理员¹ | 确认执行 AI 建议的处置操作 |
 | `/执行拒绝` | `/execute_reject` | 管理员¹ | 拒绝执行 AI 建议的处置操作 |
 
@@ -90,6 +90,8 @@ git clone https://github.com/makotowu/astrbot_plugin_chat_analyzer.git
 /审核 123456           # 分析群 123456
 /analyze 123456        # 同上
 /分析                  # 分析当前群（需在群内发送）
+/策略组管理员 @成员     # 添加 @ 的成员为策略组管理员
+/策略组管理员 --sync    # 一键同步当前群主+管理员为策略组管理员
 /执行确认 12345678     # 确认执行编号 12345678 的处置建议
 /执行拒绝 12345678     # 拒绝
 ```

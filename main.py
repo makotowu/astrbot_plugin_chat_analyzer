@@ -118,6 +118,44 @@ class Main(Star):
             self._report = ReportSender(self.context, self._bot_id)
         return sid
 
+    async def _sync_group_admins(
+        self, event: AstrMessageEvent, group_id: str, gc: GroupConfig
+    ) -> None:
+        try:
+            group_info = await event.get_group()
+            if group_info is None:
+                yield event.plain_result(
+                    "\u274c \u65e0\u6cd5\u83b7\u53d6\u7fa4\u4fe1\u606f\uff0c\u8bf7\u786e\u8ba4\u5f53\u524d\u5e73\u53f0\u652f\u6301\u6b64\u64cd\u4f5c\u3002"
+                )
+                return
+        except Exception as e:
+            yield event.plain_result(f"\u274c \u83b7\u53d6\u7fa4\u4fe1\u606f\u5931\u8d25: {e}")
+            logger.error(f"获取群 {group_id} 信息失败: {e}")
+            return
+
+        synced: List[str] = []
+        if group_info.group_owner and str(group_info.group_owner) not in gc.admin_ids:
+            synced.append(str(group_info.group_owner))
+        if group_info.group_admins:
+            for aid in group_info.group_admins:
+                aid_str = str(aid)
+                if aid_str not in gc.admin_ids and aid_str not in synced:
+                    synced.append(aid_str)
+
+        if synced:
+            gc.admin_ids.extend(synced)
+            persist_strategy_admins(self.cfg, group_id, gc.admin_ids)
+            yield event.plain_result(
+                f"\u2705 \u5df2\u540c\u6b65\u7fa4 {group_id} \u7684\u7fa4\u4e3b\u53ca\u7ba1\u7406\u5458\u4e3a\u7b56\u7565\u7ec4\u7ba1\u7406\u5458\n"
+                f"\u65b0\u589e: {', '.join(synced)}\n"
+                f"\u5f53\u524d\u7b56\u7565\u7ec4\u7ba1\u7406\u5458: {', '.join(gc.admin_ids)}"
+            )
+            logger.info(f"群 {group_id} 已同步群主+管理员到策略组: {synced}")
+        else:
+            yield event.plain_result(
+                "\u2705 \u7fa4\u4e3b\u53ca\u7ba1\u7406\u5458\u5df2\u5168\u90e8\u5728\u7b56\u7565\u7ec4\u7ba1\u7406\u5458\u5217\u8868\u4e2d\uff0c\u65e0\u9700\u540c\u6b65\u3002"
+            )
+
     @event_message_type(EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         if not self._active:
@@ -246,7 +284,7 @@ class Main(Star):
         await self._engine.run(group_id, gc, force_report=True)
 
     @command("admin", alias={"策略组管理员", "setadmin"})
-    async def cmd_admin(self, event: AstrMessageEvent):
+    async def cmd_admin(self, event: AstrMessageEvent, sync: str = ""):
         group_id = event.get_group_id() or ""
         if not group_id:
             yield event.plain_result("此命令仅可在群聊中使用。")
@@ -257,6 +295,12 @@ class Main(Star):
         gc = self._group_configs.get(group_id)
         if gc is None:
             yield event.plain_result("本群未配置分析策略，请在 WebUI 中先添加策略组。")
+            return
+
+        if sync == "--sync":
+            yield event.plain_result("\u23f3 \u6b63\u5728\u540c\u6b65\u7fa4\u7ba1\u7406\u5458\u5217\u8868...")
+            async for msg in self._sync_group_admins(event, group_id, gc):
+                yield msg
             return
 
         at_qqs: List[str] = []
