@@ -37,12 +37,14 @@ class ChatRecord:
         self.message_id = message_id
         self.image_urls: List[str] = image_urls or []
         self.image_captions: List[str] = image_captions or []
+        self.is_admin: bool = False
 
     def format(self, index: int = 0) -> str:
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
         location = f"[群:{self.group_id}]" if self.group_id else ""
         prefix = f"[#{index}] " if index > 0 else ""
-        base = f"{prefix}[{time_str}]{location} {self.sender}: {self.content}"
+        admin_tag = "[管理员] " if self.is_admin else ""
+        base = f"{prefix}[{time_str}]{location} {admin_tag}{self.sender}: {self.content}"
         for caption in self.image_captions:
             base += f"\n{prefix} > [图片: {caption}]"
         return base

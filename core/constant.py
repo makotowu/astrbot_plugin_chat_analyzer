@@ -67,6 +67,7 @@ ACTION_LABELS: dict[str, str] = {
     "移除": "移除",
     "拉黑": "移除并拉黑",
     "清昵": "清空群昵称",
+    "撤回": "撤回消息",
 }
 
 TRIGGER_COOLDOWN_SECONDS = 60
@@ -76,6 +77,11 @@ CLEAN_MESSAGE_RE = re.compile(r"\[[^\]]*\](?:\s*)")
 POSITION_LINE_RE = re.compile(r"(关注|复核)\s*#(\d+)\s*(.+)", re.IGNORECASE)
 
 ACTION_LINE_RE = re.compile(
-    r"(禁言|移除|拉黑|清昵)\s*#(\d+)(?:\s+(\d+))?\s*(.+?)(?:\s*\|\s*(.+))?$",
+    r"(禁言|移除|拉黑|清昵|撤回)\s*#(\d+)(?:\s+(\d+))?\s*(.+?)(?:\s*\|\s*(.+))?$",
+    re.IGNORECASE,
+)
+
+ADMIN_REMINDER_RE = re.compile(
+    r"提醒\s*#(\d+)\s*(.+)",
     re.IGNORECASE,
 )

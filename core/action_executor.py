@@ -28,13 +28,6 @@ class ActionExecutor:
         for action, idx, reason, target_id, sender_name, mute_duration, message_id, ai_notify in actions:
             label = ACTION_LABELS.get(action, action)
             try:
-                if action != "清昵" and message_id:
-                    try:
-                        await client.delete_msg(message_id=int(message_id))
-                        logger.info(f"群 {group_id} 已撤回消息 {message_id}")
-                    except Exception as de:
-                        logger.warning(f"群 {group_id} 撤回消息 {message_id} 失败: {de}")
-
                 if action == "禁言":
                     dur = max(1, mute_duration)
                     await client.api.call_action(
@@ -97,6 +90,22 @@ class ActionExecutor:
                     )
                     notify = ai_notify or (
                         f"\U0001f6ab {sender_name} \u7684\u7fa4\u6635\u79f0\u5df2\u88ab\u6e05\u7a7a\n"
+                        f"\u539f\u56e0: {reason}"
+                    )
+                    results.append(msg)
+                    logger.info(f"群 {group_id} {label} {sender_name}({target_id})")
+                elif action == "撤回":
+                    if message_id:
+                        try:
+                            await client.delete_msg(message_id=int(message_id))
+                            logger.info(f"群 {group_id} 已撤回消息 {message_id}")
+                        except Exception as de:
+                            logger.warning(f"群 {group_id} 撤回消息 {message_id} 失败: {de}")
+                    msg = (
+                        f"\u2705 {label} #{idx} {sender_name}({target_id}): {reason}"
+                    )
+                    notify = ai_notify or (
+                        f"\U0001f6ab {sender_name} \u7684\u6d88\u606f\u5df2\u88ab\u64a4\u56de\n"
                         f"\u539f\u56e0: {reason}"
                     )
                     results.append(msg)

@@ -1,6 +1,6 @@
 from typing import List, Set, Tuple
 
-from .constant import ACTION_LINE_RE, POSITION_LINE_RE
+from .constant import ACTION_LINE_RE, ADMIN_REMINDER_RE, POSITION_LINE_RE
 from .models import ChatRecord
 
 
@@ -105,3 +105,26 @@ def sanitize_analysis_output(text: str) -> str:
         sanitized = sanitized.replace(src, dst)
 
     return sanitized
+
+
+def extract_admin_reminders(
+    text: str, records: List[ChatRecord], max_idx: int
+) -> List[Tuple[int, str, str, str]]:
+    results: List[Tuple[int, str, str, str]] = []
+    seen: Set[int] = set()
+    for line in text.splitlines():
+        m = ADMIN_REMINDER_RE.search(line)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        if idx < 1 or idx > max_idx or idx in seen:
+            continue
+        seen.add(idx)
+        record = records[idx - 1]
+        results.append((
+            idx,
+            record.sender_id or record.sender,
+            record.sender,
+            m.group(2).strip(),
+        ))
+    return results

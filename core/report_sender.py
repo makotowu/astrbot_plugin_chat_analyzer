@@ -42,14 +42,20 @@ class ReportSender:
             logger.info("未配置报告发送目标，分析结果无法发送。")
             return
         try:
-            full_report = report + extra_text
             await self._context.send_message(
                 target,
-                MessageChain(chain=[Plain(full_report)]),
+                MessageChain(chain=[Plain(report)]),
             )
             logger.info(f"分析报告已发送至 {target}")
+
             if flagged_pairs:
                 await self._send_violation_forward(target, analysis_text, flagged_pairs)
+
+            if extra_text:
+                await self._context.send_message(
+                    target,
+                    MessageChain(chain=[Plain(extra_text)]),
+                )
         except Exception as e:
             logger.error(f"发送分析报告失败: {e}")
 

@@ -118,30 +118,6 @@ class Main(Star):
             self._report = ReportSender(self.context, self._bot_id)
         return sid
 
-    @staticmethod
-    def _is_same_group(target_session: str, group_id: str) -> bool:
-        if not target_session or not group_id:
-            return False
-        try:
-            parts = target_session.split(":")
-            return len(parts) >= 3 and parts[-1] == group_id
-        except Exception:
-            return False
-
-    def _is_same_target_session(
-        self,
-        event: AstrMessageEvent,
-        target_session: str,
-        group_id: str,
-    ) -> bool:
-        if not target_session:
-            return False
-        current_session = event.unified_msg_origin or ""
-        if current_session and current_session == target_session:
-            return True
-        current_group_id = event.get_group_id() or ""
-        return current_group_id == group_id and self._is_same_group(target_session, group_id)
-
     @event_message_type(EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         if not self._active:
@@ -316,7 +292,7 @@ class Main(Star):
     async def cmd_confirm(self, event: AstrMessageEvent, confirm_id: str = ""):
         cid = (confirm_id or "").strip()
         if not cid:
-            yield event.plain_result("请提供确认编号，例如：/执行确认 abc123")
+            yield event.plain_result("请提供确认编号，例如：/执行确认 12345678")
             return
         pending = self._engine._pending_actions.pop(cid, None)
         if pending is None:
@@ -328,18 +304,12 @@ class Main(Star):
         results = await self._executor.execute_actions(pending["group_id"], pending["actions"])
         summary = f"\U0001f4cb \u5904\u7f6e\u7ed3\u679c (编号 {cid}):\n" + "\n".join(results)
         yield event.plain_result(summary)
-        target = pending["target"]
-        if target and not self._is_same_target_session(event, target, pending["group_id"]):
-            try:
-                await self.context.send_message(target, MessageChain(chain=[Plain(summary)]))
-            except Exception as e:
-                logger.error(f"发送处置结果通知失败: {e}")
 
     @command("execute_reject", alias={"执行拒绝"})
     async def cmd_reject(self, event: AstrMessageEvent, confirm_id: str = ""):
         cid = (confirm_id or "").strip()
         if not cid:
-            yield event.plain_result("请提供确认编号，例如：/执行拒绝 abc123")
+            yield event.plain_result("请提供确认编号，例如：/执行拒绝 12345678")
             return
         pending = self._engine._pending_actions.pop(cid, None)
         if pending is None:

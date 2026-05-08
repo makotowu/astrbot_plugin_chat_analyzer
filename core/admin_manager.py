@@ -15,6 +15,15 @@ class AdminManager:
         self._group_configs = group_configs
         self._global_admin_ids = global_admin_ids
 
+        self._builtin_admin_ids: Set[str] = set()
+        try:
+            main_cfg = self._context.get_config()
+            raw = main_cfg.get("admins_id", [])
+            if isinstance(raw, list):
+                self._builtin_admin_ids = {str(uid).strip() for uid in raw if uid}
+        except Exception:
+            pass
+
     def check(self, event: AstrMessageEvent, group_id: str = "") -> bool:
         if event.role == "admin":
             return True
@@ -29,6 +38,7 @@ class AdminManager:
 
     def all_ids(self, group_id: str) -> Set[str]:
         result: Set[str] = set(self._global_admin_ids)
+        result.update(self._builtin_admin_ids)
         gc = self._group_configs.get(group_id)
         if gc:
             result.update(gc.admin_ids)
@@ -70,3 +80,31 @@ class AdminManager:
             )
         except Exception as e:
             logger.error(f"发送管理员警告失败: {e}")
+
+    async def send_admin_reminder(
+        self, group_id: str, target_id: str, sender_name: str,
+        reminder_text: str, target_session: str,
+    ) -> None:
+        at_cq = f"[CQ:at,qq={target_id}]"
+        msg = (
+            f"\U0001f4e2 \u7ba1\u7406\u5458\u63d0\u9192\n"
+            f"{at_cq} {sender_name}\uff0c{reminder_text}"
+        )
+        try:
+            if target_session:
+                platforms = self._context.platform_manager.get_insts()
+                for platform in platforms:
+                    client = platform.get_client()
+                    if not hasattr(client, "api") or not hasattr(client.api, "call_action"):
+                        continue
+                    session_parts = target_session.split(":")
+                    if len(session_parts) >= 3:
+                        await client.api.call_action(
+                            "send_group_msg",
+                            group_id=int(session_parts[-1]),
+                            message=msg,
+                        )
+                    break
+            logger.info(f"群 {group_id} 管理员提醒已发送: {sender_name}({target_id})")
+        except Exception as e:
+            logger.error(f"发送管理员提醒失败: {e}")

@@ -1,17 +1,16 @@
+import random
 import time
-import uuid
 from typing import Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 from astrbot.api.all import Context
-from astrbot.api.event import MessageChain
-from astrbot.api.message_components import Plain
 
 from .action_executor import ActionExecutor
 from .admin_manager import AdminManager
 from .ai_client import AIClient
 from .analysis_parser import (
     extract_action_suggestions,
+    extract_admin_reminders,
     extract_overall_conclusion,
     extract_position_items,
     sanitize_analysis_output,
@@ -57,6 +56,12 @@ class AnalysisEngine:
             gc.group_rules,
             gc.action_mode,
         )
+
+        admin_ids = self._admin.all_ids(group_id)
+        for r in records:
+            if r.sender_id in admin_ids:
+                r.is_admin = True
+
         chat_text = "\n".join(r.format(i + 1) for i, r in enumerate(records))
 
         logger.info(
@@ -114,8 +119,29 @@ class AnalysisEngine:
                 )
 
         header = self._report.build_header(records, prompts)
+        result = self._compact_report(result)
         full_report = header + result
         target = gc.target_session or ""
+
+        admin_reminders = extract_admin_reminders(result, records, len(records))
+
+        reminder_text = ""
+        for idx, target_id, sender_name, reminder in admin_reminders:
+            await self._admin.send_admin_reminder(
+                group_id, target_id, sender_name, reminder, target,
+            )
+            if reminder_text:
+                reminder_text += "\n"
+            reminder_text += (
+                f"\U0001f4e2 {sender_name}({target_id}): {reminder}"
+            )
+
+        if reminder_text:
+            reminder_text = (
+                "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+                "\U0001f4e2 \u7ba1\u7406\u5458\u63d0\u9192:\n"
+                + reminder_text
+            )
 
         action_results_text = ""
         if gc.action_mode in ("confirm", "auto"):
@@ -135,7 +161,7 @@ class AnalysisEngine:
                     elif gc.action_mode == "confirm":
                         action_results_text += await self._handle_confirm(group_id, clean_actions, target)
 
-        await self._report.send_result(target, full_report, result, flagged_pairs, action_results_text)
+        await self._report.send_result(target, full_report, result, flagged_pairs, reminder_text + action_results_text)
         self._buf.save()
 
     async def _handle_auto(self, group_id: str, actions: list, target: str) -> str:
@@ -146,55 +172,94 @@ class AnalysisEngine:
             + "\n".join(results)
         )
         logger.info(f"群 {group_id} auto 模式已执行 {len(actions)} 项处置。")
-        if target:
-            try:
-                await self._context.send_message(
-                    target,
-                    MessageChain(chain=[Plain(action_report)]),
-                )
-            except Exception as e:
-                logger.error(f"发送自动处置报告失败: {e}")
         return action_report
 
     async def _handle_confirm(self, group_id: str, actions: list, target: str) -> str:
-        confirm_id = uuid.uuid4().hex[:8]
-        self._pending_actions[confirm_id] = {
-            "group_id": group_id,
-            "actions": actions,
-            "target": target,
-            "created_at": time.time(),
-        }
-        lines_desc = []
-        for act, idx, reason, tid, name, mute_dur, _msg_id, _notify in actions:
-            act_label = ACTION_LABELS.get(act, act)
-            if act == "禁言":
-                desc = f"  {act_label} #{idx} {name}({tid}) {mute_dur}s: {reason}"
+        groups: Dict[str, list] = {}
+        for act in actions:
+            tid = act[3]
+            groups.setdefault(tid, []).append(act)
+
+        parts: List[str] = []
+        parts.append("\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n")
+
+        for tid, person_actions in groups.items():
+            confirm_id = str(random.randint(10000000, 99999999))
+            self._pending_actions[confirm_id] = {
+                "group_id": group_id,
+                "actions": person_actions,
+                "target": target,
+                "created_at": time.time(),
+            }
+
+            name = person_actions[0][4]
+
+            action_groups: Dict[str, List[str]] = {}
+            for act, idx, reason, _tid, _name, mute_dur, _msg_id, _notify in person_actions:
+                act_label = ACTION_LABELS.get(act, act)
+                if act == "禁言":
+                    detail = f"#{idx} {reason}（{mute_dur}s）"
+                else:
+                    detail = f"#{idx} {reason}"
+                action_groups.setdefault(act_label, []).append(detail)
+
+            lines_desc: List[str] = []
+            for act_label, details in action_groups.items():
+                lines_desc.append(f"  \u00b7 {act_label}: {', '.join(details)}")
+
+            confirm_msg = (
+                f"\U0001f6a8 AI \u5efa\u8bae\u5bf9\u7fa4 {group_id} \u4ee5\u4e0b\u5904\u7f6e:\n"
+                f"\U0001f464 {name}({tid})\n"
+                + "\n".join(lines_desc)
+                + f"\n\n\u8bf7\u7ba1\u7406\u5458\u786e\u8ba4:\n"
+                f"  /执行确认 {confirm_id}\n"
+                f"  /执行拒绝 {confirm_id}\n"
+                f"(\u7f16\u53f7\u6709\u6548\u671f 60 \u5206\u949f)"
+            )
+
+            logger.info(
+                f"群 {group_id} 待确认 {confirm_id}，"
+                f"{name}({tid}) {len(person_actions)} 项处置。"
+            )
+            parts.append(confirm_msg)
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _compact_report(result: str) -> str:
+        sections: Dict[str, List[str]] = {}
+        current_section: str | None = None
+
+        for line in result.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("【") and "】" in stripped:
+                current_section = stripped
+                sections.setdefault(current_section, [])
+                continue
+            if current_section is not None:
+                sections[current_section].append(line)
+
+        out: List[str] = []
+
+        for sec_title, sec_lines in sections.items():
+            out.append(sec_title)
+            content = [l.strip() for l in sec_lines if l.strip()]
+            if not content:
+                continue
+
+            if sec_title in ("【摘要】", "【风险与依据】", "【处理建议】"):
+                trimmed = []
+                for i, c in enumerate(content):
+                    if len(c) > 50:
+                        c = c[:47] + "..."
+                    if i >= 2 and sec_title in ("【摘要】", "【风险与依据】"):
+                        break
+                    trimmed.append(c)
+                out.extend(trimmed)
+            elif sec_title in ("【总体结论】", "【定位清单】",
+                               "【处置建议】", "【管理员提醒】"):
+                out.extend(content)
             else:
-                desc = f"  {act_label} #{idx} {name}({tid}): {reason}"
-            lines_desc.append(desc)
-        confirm_msg = (
-            f"\U0001f6a8 AI \u5efa\u8bae\u5bf9\u7fa4 {group_id} \u6267\u884c\u4ee5\u4e0b\u5904\u7f6e:\n"
-            + "\n".join(lines_desc)
-            + f"\n\n\u8bf7\u7ba1\u7406\u5458\u786e\u8ba4:\n"
-            f"  /执行确认 {confirm_id}\n"
-            f"  /执行拒绝 {confirm_id}\n"
-            f"(\u7f16\u53f7\u6709\u6548\u671f 10 \u5206\u949f)"
-        )
-        if target:
-            try:
-                await self._context.send_message(
-                    target,
-                    MessageChain(chain=[Plain(confirm_msg)]),
-                )
-            except Exception as e:
-                logger.error(f"发送确认请求失败: {e}")
-        logger.info(
-            f"群 {group_id} confirm 模式待确认 {confirm_id}，"
-            f"{len(actions)} 项处置。"
-        )
-        return (
-            "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
-            "\u23f3 \u5f85\u786e\u8ba4\u5904\u7f6e\u5df2\u751f\u6210:\n"
-            f"  \u5171 {len(actions)} \u9879\uff0c\u7f16\u53f7 {confirm_id}\n"
-            f"  \u4f7f\u7528 /执行确认 {confirm_id} \u6216 /执行拒绝 {confirm_id} \u5904\u7406"
-        )
+                out.extend(content)
+
+        return "\n".join(out) + "\n"
