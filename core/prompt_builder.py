@@ -82,7 +82,12 @@ def build_system_prompt(
         lines.append("每行格式: 操作类型 #N [秒数] 原因 | 群内通知")
         lines.append("禁言秒数: 轻微=300-600, 中等=600-1800, 严重=1800-7200")
         lines.append("群内通知: 简短自然，10-30字，不写@某人")
-        lines.append("同一成员多条处置: 通知只写在第一条后面，后续写\"同上\"")
+        lines.append("")
+        lines.append("重要：同一成员同类型操作必须合并为一条：")
+        lines.append("- 每成员每操作类型最多一行，#N 取第一条被标记的消息编号")
+        lines.append("- 禁言需叠加：反复违规把秒数加起来（累计上限 7200s）")
+        lines.append("- 原因概括所有违规（如\"多次人身攻击\"），不用\"同上\"")
+        lines.append("- 通知写一次即可")
         lines.append("涉及 [管理员] 成员的处置建议会被自动跳过")
         lines.append("")
 

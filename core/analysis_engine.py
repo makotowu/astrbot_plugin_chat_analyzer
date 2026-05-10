@@ -22,6 +22,40 @@ from .prompt_builder import build_system_prompt, resolve_group_prompts
 from .report_sender import ReportSender
 from .storage import ChatStorage
 
+MAX_MUTE_SECONDS = 7200
+
+
+def _merge_actions(
+    actions: List[Tuple[str, int, str, str, str, int, str, str]],
+) -> List[Tuple[str, int, str, str, str, int, str, str]]:
+    groups: Dict[Tuple[str, str], list] = {}
+    for a in actions:
+        key = (a[0], a[3])
+        groups.setdefault(key, []).append(a)
+    merged: List[Tuple[str, int, str, str, str, int, str, str]] = []
+    for (act, tid), items in groups.items():
+        if len(items) == 1:
+            merged.append(items[0])
+            continue
+        first = items[0]
+        min_idx = min(it[1] for it in items)
+        reason_parts = []
+        total_mute = 0
+        for it in items:
+            r = it[2]
+            if r and r not in reason_parts:
+                reason_parts.append(r)
+            total_mute += it[5] if act == "禁言" else 0
+        if act == "禁言":
+            total_mute = min(total_mute, MAX_MUTE_SECONDS)
+        merged_reason = "多次" + ("、".join(r[:4] for r in reason_parts[:3]))
+        merged.append((
+            act, min_idx, merged_reason,
+            tid, first[4],
+            total_mute, first[6], first[7],
+        ))
+    return merged
+
 
 class AnalysisEngine:
     def __init__(
@@ -94,7 +128,9 @@ class AnalysisEngine:
         sanitized_text = sanitize_analysis_output(ai_output)
         overall_conclusion = extract_overall_conclusion(sanitized_text)
         position_items = extract_position_items(sanitized_text, len(records))
-        action_suggestions = extract_action_suggestions(sanitized_text, records, len(records))
+        action_suggestions = _merge_actions(
+            extract_action_suggestions(sanitized_text, records, len(records))
+        )
         admin_reminders = extract_admin_reminders(sanitized_text, records, len(records))
 
         record_ids_to_mark = [r.db_id for r in records if r.db_id]
