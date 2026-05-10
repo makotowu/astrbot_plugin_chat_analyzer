@@ -5,6 +5,12 @@
     "type": "bool",
     "default": false
   },
+  "chat_analysis_debug": {
+    "description": "调试模式",
+    "hint": "开启后输出详细的调试日志，包括 Agent 每轮的 system prompt、LLM 原始返回、工具调用详情等。仅用于开发调试。",
+    "type": "bool",
+    "default": false
+  },
   "chat_analysis_interval_minutes": {
     "description": "分析间隔（分钟）",
     "hint": "每隔多少分钟执行一次 AI 分析。",

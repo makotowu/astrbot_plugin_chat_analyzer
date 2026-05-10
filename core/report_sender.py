@@ -59,6 +59,25 @@ class ReportSender:
         except Exception as e:
             logger.error(f"发送分析报告失败: {e}")
 
+    async def send_flagged_only(
+        self,
+        target: str,
+        pairs: List[Tuple[str, str, ChatRecord]],
+    ) -> None:
+        if not target or not pairs:
+            return
+        try:
+            header = (
+                "\U0001f4cc AI \u5ba1\u6838\u5b9a\u4f4d\u6d88\u606f\uff0c\u8bf7\u7ba1\u7406\u5458\u590d\u6838\uff1a"
+            )
+            await self._context.send_message(
+                target,
+                MessageChain(chain=[Plain(header)]),
+            )
+            await self._send_violation_forward(target, "", pairs)
+        except Exception as e:
+            logger.error(f"发送定位消息失败: {e}")
+
     async def _send_violation_forward(
         self,
         target: str,

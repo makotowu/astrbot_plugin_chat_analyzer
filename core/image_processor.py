@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from astrbot.api import logger
 from astrbot.api.all import Context
@@ -7,8 +7,9 @@ from astrbot.api.message_components import Image
 
 
 class ImageProcessor:
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, storage=None):
         self._context = context
+        self._storage = storage
 
     async def extract(self, event: AstrMessageEvent) -> Dict[str, List[str]]:
         urls: List[str] = []
@@ -25,6 +26,11 @@ class ImageProcessor:
         return {"urls": urls, "captions": captions}
 
     async def _get_caption(self, image_url: str) -> str:
+        if self._storage:
+            cached = await self._storage.get_cached_caption(image_url)
+            if cached:
+                return cached
+
         try:
             provider = self._context.get_using_provider()
             if provider is None:
@@ -35,7 +41,13 @@ class ImageProcessor:
                 session_id="",
             )
             if resp and resp.completion_text:
-                return resp.completion_text.strip()
+                caption = resp.completion_text.strip()
+                if self._storage and caption:
+                    await self._storage.set_cached_caption(image_url, caption)
+                return caption
             return ""
         except Exception:
             return ""
+
+    def set_storage(self, storage) -> None:
+        self._storage = storage

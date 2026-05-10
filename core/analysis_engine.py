@@ -1,3 +1,4 @@
+import json
 import random
 import time
 from typing import Dict, List, Optional, Tuple
@@ -15,72 +16,96 @@ from .analysis_parser import (
     extract_position_items,
     sanitize_analysis_output,
 )
-from .buffer_manager import BufferManager
 from .constant import ACTION_LABELS
 from .models import ChatRecord, GroupConfig
-from .prompt_builder import build_combined_prompt, resolve_group_prompts
+from .prompt_builder import build_system_prompt, resolve_group_prompts
 from .report_sender import ReportSender
+from .storage import ChatStorage
 
 
 class AnalysisEngine:
     def __init__(
         self,
         context: Context,
-        buf: BufferManager,
+        storage: ChatStorage,
         ai: AIClient,
         report: ReportSender,
         executor: ActionExecutor,
         admin: AdminManager,
         skip_silent: bool,
+        debug: bool = False,
     ):
         self._context = context
-        self._buf = buf
+        self._storage = storage
         self._ai = ai
         self._report = report
         self._executor = executor
         self._admin = admin
         self._skip_silent = skip_silent
+        self._debug = debug
         self._pending_actions: Dict[str, dict] = {}
+        if debug:
+            self._ai.set_debug(True)
 
     async def run(
         self, group_id: str, gc: GroupConfig, *, force_report: bool = False
     ):
-        records = await self._buf.pop_records(group_id)
+        records = await self._storage.get_unanalyzed_records(group_id)
         if not records:
             return
-
-        prompts = resolve_group_prompts(gc)
-        system_prompt = build_combined_prompt(
-            prompts,
-            self._skip_silent and not force_report,
-            gc.group_rules,
-            gc.action_mode,
-        )
 
         admin_ids = self._admin.all_ids(group_id)
         for r in records:
             if r.sender_id in admin_ids:
                 r.is_admin = True
 
-        chat_text = "\n".join(r.format(i + 1) for i, r in enumerate(records))
-
-        logger.info(
-            f"开始分析群 {group_id} 的 {len(records)} 条记录，"
-            f"策略数 {len(prompts)}（合并为单次 AI 调用）"
+        prompts = resolve_group_prompts(gc)
+        system_prompt = build_system_prompt(
+            prompts,
+            self._skip_silent and not force_report,
+            gc.action_mode,
         )
 
-        raw = await self._ai.analyze(chat_text, system_prompt)
-        if not raw:
-            await self._buf.pushback_records(group_id, records)
-            logger.error(f"群 {group_id} AI 分析返回空结果。")
+        records.sort(key=lambda r: r.timestamp)
+        chat_text = (
+            f"群号: {group_id}\n"
+            f"处置模式: {gc.action_mode}\n"
+        )
+        if gc.group_rules:
+            chat_text += f"群规: {gc.group_rules[:500]}\n"
+        chat_text += "\n" + "\n".join(r.format(i + 1) for i, r in enumerate(records))
+
+        if self._debug:
+            logger.debug(f"g:{group_id} system_prompt:\n{system_prompt[:2000]}")
+            logger.debug(f"g:{group_id} chat_text:\n{chat_text[:2000]}")
+
+        logger.info(
+            f"开始分析群 {group_id}，共 {len(records)} 条记录，策略数 {len(prompts)}"
+        )
+
+        ai_output = await self._ai.analyze(chat_text, system_prompt)
+        if not ai_output:
+            logger.error(f"群 {group_id} AI 分析返回空结果")
+            record_ids_to_mark = [r.db_id for r in records if r.db_id]
+            if record_ids_to_mark:
+                await self._storage.mark_analyzed(record_ids_to_mark)
             return
 
-        result = sanitize_analysis_output(raw)
+        sanitized_text = sanitize_analysis_output(ai_output)
+        overall_conclusion = extract_overall_conclusion(sanitized_text)
+        position_items = extract_position_items(sanitized_text, len(records))
+        action_suggestions = extract_action_suggestions(sanitized_text, records, len(records))
+        admin_reminders = extract_admin_reminders(sanitized_text, records, len(records))
 
-        overall_conclusion = extract_overall_conclusion(result)
-        position_items = extract_position_items(result, len(records))
-        action_suggestions = extract_action_suggestions(result, records, len(records))
-        admin_reminders = extract_admin_reminders(result, records, len(records))
+        record_ids_to_mark = [r.db_id for r in records if r.db_id]
+
+        if self._debug:
+            logger.debug(
+                f"g:{group_id} conclusion={overall_conclusion} "
+                f"position_items={len(position_items)} "
+                f"actions={len(action_suggestions)} "
+                f"reminders={len(admin_reminders)}"
+            )
 
         if (
             self._skip_silent
@@ -92,6 +117,8 @@ class AnalysisEngine:
             logger.info(
                 f"群 {group_id} 本轮分析结论正常，且无定位消息和处置建议，跳过报告推送。"
             )
+            if record_ids_to_mark:
+                await self._storage.mark_analyzed(record_ids_to_mark)
             return
 
         flagged_pairs: Optional[List[Tuple[str, str, ChatRecord]]] = None
@@ -105,8 +132,7 @@ class AnalysisEngine:
                     pairs.append((level, reason, records[idx - 1]))
                 flagged_pairs = pairs
                 logger.info(
-                    f"群 {group_id} 提取到 {len(position_items)} 条定位消息:"
-                    f" {[f'{level}#{idx}({reason})' for level, idx, reason in position_items]}"
+                    f"群 {group_id} 提取到 {len(position_items)} 条定位消息"
                 )
             else:
                 fallback_reason = (
@@ -120,15 +146,13 @@ class AnalysisEngine:
                 )
 
         header = self._report.build_header(records, prompts)
-        compact_result = self._compact_report(result)
+        compact_result = sanitized_text
         full_report = header + compact_result
         target = gc.target_session or ""
 
         for idx, target_id, sender_name, reminder in admin_reminders:
             if target_id in admin_ids:
-                await self._admin.send_admin_reminder(
-                    group_id, target_id, sender_name, reminder, target,
-                )
+                await self._admin._send_warning(target, group_id, [(f"{sender_name}({target_id}): {reminder}")])
 
         action_results_text = ""
         if gc.action_mode in ("confirm", "auto"):
@@ -144,26 +168,48 @@ class AnalysisEngine:
                     )
                 if clean_actions:
                     if gc.action_mode == "auto":
-                        action_results_text += await self._handle_auto(group_id, clean_actions, target)
+                        action_results_text += self._handle_auto_sync(
+                            group_id, clean_actions, target,
+                        )
                     elif gc.action_mode == "confirm":
-                        action_results_text += await self._handle_confirm(group_id, clean_actions, target)
+                        action_results_text += self._handle_confirm_sync(
+                            group_id, clean_actions, target,
+                        )
 
         await self._report.send_result(
             target, full_report, compact_result, flagged_pairs, action_results_text
         )
-        self._buf.save()
 
-    async def _handle_auto(self, group_id: str, actions: list, target: str) -> str:
-        results = await self._executor.execute_actions(group_id, actions)
-        action_report = (
-            "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
-            "\U0001f6e1\ufe0f \u81ea\u52a8\u5904\u7f6e\u7ed3\u679c:\n"
-            + "\n".join(results)
+        if record_ids_to_mark:
+            await self._storage.mark_analyzed(record_ids_to_mark)
+
+        await self._storage.log_analysis(
+            group_id=group_id,
+            record_count=len(records),
+            prompts=[p[0] for p in prompts],
+            system_prompt=system_prompt[:500],
+            ai_response=ai_output[:2000],
+            conclusion=overall_conclusion,
+            action_count=len(action_suggestions),
         )
-        logger.info(f"群 {group_id} auto 模式已执行 {len(actions)} 项处置。")
-        return action_report
 
-    async def _handle_confirm(self, group_id: str, actions: list, target: str) -> str:
+        await self._storage.cleanup_old_records(group_id, keep_days=7)
+
+    def _handle_auto_sync(self, group_id: str, actions: list, target: str) -> str:
+        import asyncio
+        asyncio.create_task(self._executor.execute_actions(group_id, actions))
+        action_labels = [
+            ACTION_LABELS.get(a[0], a[0]) for a in actions
+        ]
+        action_msg = (
+            "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+            "\U0001f6e1\ufe0f \u81ea\u52a8\u5904\u7f6e\u5df2\u89e6\u53d1: "
+            + ", ".join(action_labels)
+        )
+        logger.info(f"群 {group_id} auto 模式已触发 {len(actions)} 项处置。")
+        return action_msg
+
+    def _handle_confirm_sync(self, group_id: str, actions: list, target: str) -> str:
         groups: Dict[str, list] = {}
         for act in actions:
             tid = act[3]
@@ -213,30 +259,3 @@ class AnalysisEngine:
             parts.append(confirm_msg)
 
         return "\n".join(parts)
-
-    @staticmethod
-    def _compact_report(result: str) -> str:
-        sections: Dict[str, List[str]] = {}
-        current_section: str | None = None
-
-        for line in result.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("【") and "】" in stripped:
-                current_section = stripped
-                sections.setdefault(current_section, [])
-                continue
-            if current_section is not None:
-                sections[current_section].append(line)
-
-        out: List[str] = []
-
-        SKIP_SECTIONS = {"【处置建议】", "【管理员提醒】"}
-
-        for sec_title, sec_lines in sections.items():
-            if sec_title in SKIP_SECTIONS:
-                continue
-            out.append(sec_title)
-            content = [l.strip() for l in sec_lines if l.strip()]
-            out.extend(content)
-
-        return "\n".join(out) + "\n"

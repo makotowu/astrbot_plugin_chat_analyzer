@@ -38,6 +38,15 @@ class ChatRecord:
         self.image_urls: List[str] = image_urls or []
         self.image_captions: List[str] = image_captions or []
         self.is_admin: bool = False
+        self._db_id: int = 0
+
+    @property
+    def db_id(self) -> int:
+        return self._db_id
+
+    @db_id.setter
+    def db_id(self, value: int) -> None:
+        self._db_id = value
 
     def format(self, index: int = 0) -> str:
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))

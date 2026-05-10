@@ -19,7 +19,6 @@ from .core.action_executor import ActionExecutor
 from .core.admin_manager import AdminManager
 from .core.ai_client import AIClient
 from .core.analysis_engine import AnalysisEngine
-from .core.buffer_manager import BufferManager
 from .core.config import parse_group_configs, persist_strategy_admins
 from .core.constant import (
     CLEAN_MESSAGE_RE,
@@ -29,6 +28,7 @@ from .core.constant import (
 from .core.image_processor import ImageProcessor
 from .core.models import ChatRecord, GroupConfig
 from .core.report_sender import ReportSender
+from .core.storage import ChatStorage
 
 
 @register("astrbot_plugin_chat_analyzer", "makotowu", "", "", "")
@@ -45,6 +45,7 @@ class Main(Star):
             0, int(self.cfg.get("chat_analysis_max_messages", 0))
         )
         self.skip_silent = bool(self.cfg.get("chat_analysis_skip_silent", True))
+        self.debug = bool(self.cfg.get("chat_analysis_debug", False))
         self.target_session = str(
             self.cfg.get("chat_analysis_target_session", "") or ""
         ).strip()
@@ -79,22 +80,20 @@ class Main(Star):
                         "建议改为 confirm 或 auto 以启用自动处置能力。"
                     )
 
-        data_path = os.path.join(
-            StarTools.get_data_dir(plugin_name="astrbot_plugin_chat_analyzer"),
-            "buffers.json",
-        )
-        self._buf = BufferManager(data_path, self.max_messages)
-        self._buf.load()
+        data_dir = StarTools.get_data_dir(plugin_name="astrbot_plugin_chat_analyzer")
+        db_path = os.path.join(data_dir, "chat_analyzer.db")
+        self._storage = ChatStorage(db_path)
 
         self._bot_id: str = ""
         self._report = ReportSender(self.context, self._bot_id)
-        self._image = ImageProcessor(self.context)
+        self._image = ImageProcessor(self.context, self._storage)
         self._executor = ActionExecutor(self.context)
         self._ai_client = AIClient(self.context, self.target_session)
         self._admin = AdminManager(self.context, self._group_configs, self._admin_ids)
         self._engine = AnalysisEngine(
-            self.context, self._buf, self._ai_client,
-            self._report, self._executor, self._admin, self.skip_silent,
+            self.context, self._storage, self._ai_client,
+            self._report, self._executor, self._admin,
+            self.skip_silent, self.debug,
         )
 
         self._trigger_cooldowns: Dict[str, float] = {}
@@ -191,7 +190,7 @@ class Main(Star):
             image_urls=image_info["urls"],
             image_captions=image_info["captions"],
         )
-        await self._buf.append_record(group_id, record)
+        await self._storage.append_record(record)
         trigger_text = text or " ".join(image_info["captions"])
         await self._check_trigger(group_id, trigger_text)
 
@@ -224,7 +223,7 @@ class Main(Star):
             timestamp=time.time(),
             group_id=group_id,
         )
-        await self._buf.append_record(group_id, record)
+        await self._storage.append_record(record)
 
     # ------------------------------------------------------------------
     # 命令
@@ -261,7 +260,7 @@ class Main(Star):
             yield event.plain_result("权限不足，仅管理员可用。")
             return
 
-        pending = await self._buf.pending_count(group_id)
+        pending = await self._storage.count_unanalyzed(group_id)
         if not pending:
             yield event.plain_result(f"群 {group_id} 当前没有待分析的聊天记录。")
             return
@@ -369,7 +368,6 @@ class Main(Star):
     # ------------------------------------------------------------------
 
     async def terminate(self):
-        self._buf.save()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
