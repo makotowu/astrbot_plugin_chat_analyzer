@@ -80,6 +80,7 @@ class AnalysisEngine:
         overall_conclusion = extract_overall_conclusion(result)
         position_items = extract_position_items(result, len(records))
         action_suggestions = extract_action_suggestions(result, records, len(records))
+        admin_reminders = extract_admin_reminders(result, records, len(records))
 
         if (
             self._skip_silent
@@ -119,29 +120,15 @@ class AnalysisEngine:
                 )
 
         header = self._report.build_header(records, prompts)
-        result = self._compact_report(result)
-        full_report = header + result
+        compact_result = self._compact_report(result)
+        full_report = header + compact_result
         target = gc.target_session or ""
 
-        admin_reminders = extract_admin_reminders(result, records, len(records))
-
-        reminder_text = ""
         for idx, target_id, sender_name, reminder in admin_reminders:
-            await self._admin.send_admin_reminder(
-                group_id, target_id, sender_name, reminder, target,
-            )
-            if reminder_text:
-                reminder_text += "\n"
-            reminder_text += (
-                f"\U0001f4e2 {sender_name}({target_id}): {reminder}"
-            )
-
-        if reminder_text:
-            reminder_text = (
-                "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
-                "\U0001f4e2 \u7ba1\u7406\u5458\u63d0\u9192:\n"
-                + reminder_text
-            )
+            if target_id in admin_ids:
+                await self._admin.send_admin_reminder(
+                    group_id, target_id, sender_name, reminder, target,
+                )
 
         action_results_text = ""
         if gc.action_mode in ("confirm", "auto"):
@@ -161,7 +148,9 @@ class AnalysisEngine:
                     elif gc.action_mode == "confirm":
                         action_results_text += await self._handle_confirm(group_id, clean_actions, target)
 
-        await self._report.send_result(target, full_report, result, flagged_pairs, reminder_text + action_results_text)
+        await self._report.send_result(
+            target, full_report, compact_result, flagged_pairs, action_results_text
+        )
         self._buf.save()
 
     async def _handle_auto(self, group_id: str, actions: list, target: str) -> str:

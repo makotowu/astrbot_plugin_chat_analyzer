@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 from astrbot.api import logger
 from astrbot.api.all import Context
@@ -25,6 +25,7 @@ class ActionExecutor:
             return ["无法获取 QQ 客户端，操作未执行。"]
 
         results: List[str] = []
+        grouped_notifies: Dict[str, List[str]] = {}
         for action, idx, reason, target_id, sender_name, mute_duration, message_id, ai_notify in actions:
             label = ACTION_LABELS.get(action, action)
             try:
@@ -40,10 +41,6 @@ class ActionExecutor:
                         f"\u2705 {label} #{idx} {sender_name}({target_id}) "
                         f"\u7981\u8a00 {dur} \u79d2: {reason}"
                     )
-                    notify = ai_notify or (
-                        f"\U0001f6ab {sender_name} \u88ab\u7981\u8a00 {dur} \u79d2\n"
-                        f"\u539f\u56e0: {reason}"
-                    )
                     results.append(msg)
                     logger.info(f"群 {group_id} {label} {sender_name}({target_id}) 禁言 {dur}s")
                 elif action == "移除":
@@ -55,10 +52,6 @@ class ActionExecutor:
                     )
                     msg = (
                         f"\u2705 {label} #{idx} {sender_name}({target_id}): {reason}"
-                    )
-                    notify = ai_notify or (
-                        f"\U0001f6ab {sender_name} \u88ab\u79fb\u51fa\u7fa4\u804a\n"
-                        f"\u539f\u56e0: {reason}"
                     )
                     results.append(msg)
                     logger.info(f"群 {group_id} {label} {sender_name}({target_id})")
@@ -72,10 +65,6 @@ class ActionExecutor:
                     msg = (
                         f"\u2705 {label} #{idx} {sender_name}({target_id}): {reason}"
                     )
-                    notify = ai_notify or (
-                        f"\U0001f6ab {sender_name} \u88ab\u79fb\u51fa\u7fa4\u804a\u5e76\u62c9\u9ed1\n"
-                        f"\u539f\u56e0: {reason}"
-                    )
                     results.append(msg)
                     logger.info(f"群 {group_id} {label} {sender_name}({target_id})")
                 elif action == "清昵":
@@ -87,10 +76,6 @@ class ActionExecutor:
                     )
                     msg = (
                         f"\u2705 {label} #{idx} {sender_name}({target_id}): {reason}"
-                    )
-                    notify = ai_notify or (
-                        f"\U0001f6ab {sender_name} \u7684\u7fa4\u6635\u79f0\u5df2\u88ab\u6e05\u7a7a\n"
-                        f"\u539f\u56e0: {reason}"
                     )
                     results.append(msg)
                     logger.info(f"群 {group_id} {label} {sender_name}({target_id})")
@@ -104,10 +89,6 @@ class ActionExecutor:
                     msg = (
                         f"\u2705 {label} #{idx} {sender_name}({target_id}): {reason}"
                     )
-                    notify = ai_notify or (
-                        f"\U0001f6ab {sender_name} \u7684\u6d88\u606f\u5df2\u88ab\u64a4\u56de\n"
-                        f"\u539f\u56e0: {reason}"
-                    )
                     results.append(msg)
                     logger.info(f"群 {group_id} {label} {sender_name}({target_id})")
                 else:
@@ -115,16 +96,11 @@ class ActionExecutor:
                     results.append(msg)
                     continue
 
-                if "notify" in locals():
-                    try:
-                        at_text = f"[CQ:at,qq={target_id}]"
-                        await client.api.call_action(
-                            "send_group_msg",
-                            group_id=int(group_id),
-                            message=f"\U0001f6ab {at_text} {notify}",
-                        )
-                    except Exception as ne:
-                        logger.warning(f"群 {group_id} 发送处置通知失败: {ne}")
+                notify = (ai_notify or "").strip()
+                if notify:
+                    parts = grouped_notifies.setdefault(target_id, [])
+                    if notify not in parts:
+                        parts.append(notify)
             except Exception as e:
                 err_msg = (
                     f"\u274c {label} #{idx} {sender_name}({target_id}) "
@@ -132,5 +108,23 @@ class ActionExecutor:
                 )
                 results.append(err_msg)
                 logger.error(f"群 {group_id} 执行 {label} 失败: {e}")
+
+        for target_id, notifies in grouped_notifies.items():
+            notify_text = ""
+            for n in notifies:
+                if n != "同上":
+                    notify_text = n
+                    break
+            if not notify_text:
+                continue
+            try:
+                at_text = f"[CQ:at,qq={target_id}]"
+                await client.api.call_action(
+                    "send_group_msg",
+                    group_id=int(group_id),
+                    message=f"{at_text} {notify_text}",
+                )
+            except Exception as ne:
+                logger.warning(f"群 {group_id} 发送合并处置通知失败: {ne}")
 
         return results
