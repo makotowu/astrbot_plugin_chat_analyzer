@@ -4,7 +4,7 @@ from typing import Dict, List, Set, Tuple
 from astrbot.api import logger
 from astrbot.api.all import Context
 from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import At, Plain
 
 from .models import GroupConfig
 
@@ -53,6 +53,7 @@ class AdminManager:
             return list(action_suggestions), []
         clean: list = []
         warnings: List[str] = []
+        admin_id_warnings: List[Tuple[str, str]] = []
         for act_tuple in action_suggestions:
             tid = act_tuple[3]
             if tid in admin_ids:
@@ -62,22 +63,21 @@ class AdminManager:
                     f"\u26a0\ufe0f \u7fa4\u7ba1\u7406\u5458 {name}({tid}) \u53d1\u8a00\u5f02\u5e38: {reason}\n"
                     f"  \u5df2\u8df3\u8fc7\u81ea\u52a8\u5904\u7f6e\uff0c\u8bf7\u7ba1\u7406\u5458\u6ce8\u610f\u89c4\u8303\u884c\u4e3a\u3002"
                 )
+                admin_id_warnings.append((tid, reason))
                 logger.info(f"群 {group_id} 管理员 {name}({tid}) 命中处置建议，已跳过")
             else:
                 clean.append(act_tuple)
-        if warnings and target:
-            asyncio.create_task(self._send_warning(target, group_id, warnings))
+        if admin_id_warnings and target:
+            for tid, reason in admin_id_warnings:
+                asyncio.create_task(self._at_admin(target, tid, reason))
         return clean, warnings
 
-    async def _send_warning(self, target: str, group_id: str, warnings: List[str]):
-        text = (
-            f"\u26a0\ufe0f \u7fa4 {group_id} AI \u5206\u6790\u53d1\u73b0\u7ba1\u7406\u5458\u5f02\u5e38\u53d1\u8a00:\n"
-            + "\n".join(warnings)
-        )
+    async def _at_admin(self, target: str, admin_id: str, reason: str):
         try:
             await self._context.send_message(
                 target,
-                MessageChain(chain=[Plain(text)]),
+                MessageChain(chain=[At(qq=int(admin_id)), Plain(f" {reason}")]),
             )
+            logger.info(f"已 @ 管理员 {admin_id} 发送提醒")
         except Exception as e:
-            logger.error(f"发送管理员警告失败: {e}")
+            logger.error(f"@ 管理员失败: {e}")

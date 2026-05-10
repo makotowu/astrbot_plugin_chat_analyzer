@@ -152,7 +152,7 @@ class AnalysisEngine:
 
         for idx, target_id, sender_name, reminder in admin_reminders:
             if target_id in admin_ids:
-                await self._admin._send_warning(target, group_id, [(f"{sender_name}({target_id}): {reminder}")])
+                await self._admin._at_admin(target, target_id, reminder)
 
         action_results_text = ""
         if gc.action_mode in ("confirm", "auto"):
