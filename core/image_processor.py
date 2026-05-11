@@ -36,7 +36,12 @@ class ImageProcessor:
             if provider is None:
                 return ""
             resp = await provider.text_chat(
-                prompt="请用一句简短的中文描述这张图片的内容。",
+                prompt=(
+                    "你是内容审核助手。请审核这张图片是否存在以下违规内容："
+                    "色情低俗、暴力血腥、政治敏感、广告引流、违法信息。"
+                    "如果图片正常，回复\"正常\"并简述内容。"
+                    "如果有问题，回复\"异常: 类别 - 简要说明\"。"
+                ),
                 image_urls=[image_url],
                 session_id="",
             )

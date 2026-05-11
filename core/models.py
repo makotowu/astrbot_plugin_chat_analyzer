@@ -55,7 +55,7 @@ class ChatRecord:
         admin_tag = "[管理员] " if self.is_admin else ""
         base = f"{prefix}[{time_str}]{location} {admin_tag}{self.sender}: {self.content}"
         for caption in self.image_captions:
-            base += f"\n{prefix} > [图片: {caption}]"
+            base += f"\n{prefix} > [图片审核: {caption}]"
         return base
 
     def to_dict(self) -> Dict[str, Any]:

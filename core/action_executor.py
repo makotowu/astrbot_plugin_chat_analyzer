@@ -1,9 +1,19 @@
 from typing import Dict, List
+import re
 
 from astrbot.api import logger
 from astrbot.api.all import Context
+from astrbot.api.event import MessageChain
+from astrbot.api.message_components import At, Plain
 
 from .constant import ACTION_LABELS
+
+
+_NOTIFY_PREFIX_RE = re.compile(r"^(群内通知|通知|提醒|运营通知)[:：]\s*", re.IGNORECASE)
+
+
+def _clean_notify(text: str) -> str:
+    return _NOTIFY_PREFIX_RE.sub("", text).strip()
 
 
 class ActionExecutor:
@@ -97,6 +107,7 @@ class ActionExecutor:
                     continue
 
                 notify = (ai_notify or "").strip()
+                notify = _clean_notify(notify)
                 if notify:
                     parts = grouped_notifies.setdefault(target_id, [])
                     if notify not in parts:
@@ -118,11 +129,10 @@ class ActionExecutor:
             if not notify_text:
                 continue
             try:
-                at_text = f"[CQ:at,qq={target_id}]"
                 await client.api.call_action(
                     "send_group_msg",
                     group_id=int(group_id),
-                    message=f"{at_text} {notify_text}",
+                    message=str(MessageChain(chain=[At(qq=int(target_id)), Plain(f" {notify_text}")])),
                 )
             except Exception as ne:
                 logger.warning(f"群 {group_id} 发送合并处置通知失败: {ne}")
