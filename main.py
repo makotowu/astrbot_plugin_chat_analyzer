@@ -114,7 +114,7 @@ class Main(Star):
         sid = event.get_self_id() or ""
         if sid and not self._bot_id:
             self._bot_id = sid
-            self._report = ReportSender(self.context, self._bot_id)
+            self._report.bot_id = sid
         return sid
 
     async def _sync_group_admins(

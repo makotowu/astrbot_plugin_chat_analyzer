@@ -13,7 +13,48 @@ from .utils import extract_session_info, format_time_range
 class ReportSender:
     def __init__(self, context: Context, bot_id: str):
         self._context = context
-        self._bot_id = bot_id
+        self.bot_id = bot_id
+
+    async def _resolve_bot_id(self, target: str) -> str:
+        if self.bot_id:
+            return self.bot_id
+
+        session_parts = target.split(":")
+        session_type = session_parts[1] if len(session_parts) > 1 else ""
+
+        try:
+            platforms = self._context.platform_manager.get_insts()
+            for platform in platforms:
+                meta = platform.meta()
+                if meta.name not in ("aiocqhttp", "qq", "onebot", "snowluma", "napcat"):
+                    if session_type.lower() not in ("groupmessage", "friendmessage"):
+                        continue
+                if hasattr(platform, "bot_self_id"):
+                    sid = str(platform.bot_self_id)
+                    if sid:
+                        self.bot_id = sid
+                        logger.info(f"已从 platform 获取 bot_id: {sid}")
+                        return sid
+                client = platform.get_client()
+                if hasattr(client, "self_id"):
+                    sid = str(client.self_id)
+                    if sid:
+                        self.bot_id = sid
+                        logger.info(f"已从 client 获取 bot_id: {sid}")
+                        return sid
+                if hasattr(client, "api") and hasattr(client.api, "call_action"):
+                    info = await client.api.call_action("get_login_info")
+                    uid = info.get("user_id") or info.get("userId")
+                    if uid:
+                        sid = str(uid)
+                        self.bot_id = sid
+                        logger.info(f"已从 get_login_info 获取 bot_id: {sid}")
+                        return sid
+        except Exception as e:
+            logger.warning(f"获取 bot_id 时出错: {e}")
+
+        logger.warning("无法自动获取 bot_id，转发消息将使用默认值 10000")
+        return "10000"
 
     def build_header(
         self,
@@ -85,6 +126,7 @@ class ReportSender:
         pairs: List[Tuple[str, str, ChatRecord]],
     ) -> None:
         try:
+            bot_id = await self._resolve_bot_id(target)
             group_id = target.split(":")[-1] if ":" in target else target
             platforms = self._context.platform_manager.get_insts()
             for platform in platforms:
@@ -97,9 +139,8 @@ class ReportSender:
                     nodes.append({
                         "type": "node",
                         "data": {
-                            "user_id": self._bot_id or "",
+                            "user_id": bot_id,
                             "nickname": "AI 分析审核",
-                            "id": "",
                             "content": [
                                 {"type": "text", "data": {"text": analysis_text}}
                             ],
@@ -108,19 +149,18 @@ class ReportSender:
 
                 pair_idx = 0
                 for level, reason, record in pairs:
+                    uid = record.sender_id or bot_id
                     pair_idx += 1
                     nodes.append({
                         "type": "node",
                         "data": {
-                            "user_id": self._bot_id or "",
+                            "user_id": bot_id,
                             "nickname": f"{level}原因 #{pair_idx}",
-                            "id": "",
                             "content": [
                                 {"type": "text", "data": {"text": reason}}
                             ],
                         },
                     })
-                    uid = record.sender_id or record.sender
                     content_parts: list = []
                     if record.content:
                         content_parts.append(
@@ -134,8 +174,7 @@ class ReportSender:
                         "type": "node",
                         "data": {
                             "user_id": uid,
-                            "nickname": record.sender,
-                            "id": "",
+                            "nickname": record.sender or f"用户{uid}",
                             "content": content_parts,
                         },
                     })
@@ -143,6 +182,10 @@ class ReportSender:
                 if not nodes:
                     return
 
+                logger.info(
+                    f"准备发送转发消息: group_id={group_id}, nodes={len(nodes)}, "
+                    f"bot_id={bot_id}"
+                )
                 forward_msg = {"group_id": group_id, "messages": nodes}
                 await client.api.call_action("send_forward_msg", **forward_msg)
                 logger.info(
